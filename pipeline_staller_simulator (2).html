@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Pipeline Staller Simulator – 5-Stage MIPS</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:#f0f4f8; --surface:#ffffff; --surface2:#f8fafc;
+  --border:#d1dbe8; --border2:#e2eaf3;
+  --text:#1a2535; --text2:#4a5568; --muted:#8094ad;
+  --blue:#2563eb; --blue-bg:#eff6ff; --blue-bd:#bfdbfe;
+  --green:#16a34a; --green-bg:#f0fdf4; --green-bd:#bbf7d0;
+  --red:#dc2626; --red-bg:#fef2f2; --red-bd:#fecaca;
+  --yellow:#d97706; --yellow-bg:#fffbeb; --yellow-bd:#fde68a;
+  --purple:#7c3aed; --purple-bg:#f5f3ff; --purple-bd:#ddd6fe;
+  --teal:#0891b2; --teal-bg:#ecfeff; --teal-bd:#a5f3fc;
+  --orange:#ea580c; --orange-bg:#fff7ed; --orange-bd:#fed7aa;
+  --if-bg:#dbeafe; --if-bd:#93c5fd; --if-tx:#1d4ed8;
+  --id-bg:#dcfce7; --id-bd:#86efac; --id-tx:#15803d;
+  --ex-bg:#fef9c3; --ex-bd:#fde047; --ex-tx:#a16207;
+  --mem-bg:#f3e8ff; --mem-bd:#d8b4fe; --mem-tx:#6d28d9;
+  --wb-bg:#ccfbf1; --wb-bd:#5eead4; --wb-tx:#0f766e;
+  --stall-bg:#fee2e2; --stall-bd:#fca5a5; --stall-tx:#b91c1c;
+  --fwd-bg:#cffafe; --fwd-bd:#22d3ee; --fwd-tx:#0e7490;
+  --flush-bg:#fef3c7; --flush-bd:#fcd34d; --flush-tx:#92400e;
+  --struct-bg:#fdf4ff; --struct-bd:#e879f9; --struct-tx:#86198f;
+  --cache-bg:#fff7ed; --cache-bd:#fb923c; --cache-tx:#c2410c;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;font-size:14px;}
+
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:13px 28px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+header h1{font-size:1rem;font-weight:700;color:var(--text);}
+header .subtitle{font-size:0.7rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px;}
+.badge{background:var(--blue-bg);border:1px solid var(--blue-bd);color:var(--blue);font-family:'JetBrains Mono',monospace;font-size:0.68rem;padding:4px 12px;border-radius:20px;font-weight:600;}
+
+.container{padding:20px 26px;max-width:1480px;margin:0 auto;}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;}
+.card-title{font-size:0.67rem;font-weight:600;letter-spacing:1.4px;color:var(--muted);text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.card-title .dot{width:7px;height:7px;border-radius:50%;background:var(--blue);flex-shrink:0;}
+
+.control-panel{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px;}
+
+.instruction-input{width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:9px 11px;border-radius:6px;resize:vertical;min-height:116px;line-height:1.85;outline:none;transition:border-color .2s,box-shadow .2s;}
+.instruction-input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1);}
+.input-hint{font-size:0.66rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:5px;line-height:1.5;}
+.presets{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px;align-items:center;}
+.preset-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.67rem;padding:3px 9px;border-radius:5px;cursor:pointer;transition:all .15s;font-weight:500;}
+.preset-btn:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-bg);}
+
+.option-row{display:flex;flex-direction:column;}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border2);}
+.toggle-row:last-of-type{border-bottom:none;}
+.toggle-label{font-size:0.83rem;font-weight:600;color:var(--text);}
+.toggle-sub{font-size:0.67rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:1px;}
+.toggle{position:relative;width:40px;height:21px;cursor:pointer;flex-shrink:0;}
+.toggle input{opacity:0;width:0;height:0;}
+.slider{position:absolute;inset:0;background:#e2e8f0;border-radius:22px;border:1px solid var(--border);transition:.2s;}
+.slider::before{content:'';position:absolute;width:15px;height:15px;left:2px;bottom:2px;border-radius:50%;background:#94a3b8;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.15);}
+input:checked+.slider{background:#dbeafe;border-color:var(--blue);}
+input:checked+.slider::before{transform:translateX(19px);background:var(--blue);}
+
+.run-btn{width:100%;margin-top:12px;padding:10px;background:var(--blue);border:none;color:#fff;font-family:'Inter',sans-serif;font-size:0.8rem;font-weight:700;border-radius:7px;cursor:pointer;transition:all .2s;}
+.run-btn:hover{background:#1d4ed8;box-shadow:0 4px 12px rgba(37,99,235,.3);transform:translateY(-1px);}
+
+.stats-row{display:flex;gap:8px;flex-wrap:wrap;}
+.stat-chip{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;text-align:center;min-width:80px;}
+.stat-chip .val{font-family:'JetBrains Mono',monospace;font-size:1.35rem;font-weight:700;line-height:1;}
+.stat-chip .lbl{font-size:0.58rem;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.7px;font-weight:500;}
+.val.blue{color:var(--blue);}.val.green{color:var(--green);}.val.red{color:var(--red);}
+.val.yellow{color:var(--yellow);}.val.purple{color:var(--purple);}.val.teal{color:var(--teal);}.val.orange{color:var(--orange);}
+
+.step-controls{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:9px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;}
+.step-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.72rem;padding:5px 12px;border-radius:5px;cursor:pointer;transition:all .15s;font-weight:500;white-space:nowrap;}
+.step-btn:hover:not(:disabled){border-color:var(--blue);color:var(--blue);background:var(--blue-bg);}
+.step-btn:disabled{opacity:.3;cursor:not-allowed;}
+.cycle-display{font-family:'JetBrains Mono',monospace;font-size:0.82rem;font-weight:600;color:var(--blue);min-width:138px;text-align:center;padding:5px 9px;background:var(--blue-bg);border:1px solid var(--blue-bd);border-radius:5px;}
+.speed-select{background:var(--surface2);border:1px solid var(--border);color:var(--text2);font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:4px 7px;border-radius:5px;cursor:pointer;}
+.speed-label{font-size:0.67rem;color:var(--muted);white-space:nowrap;}
+.progress-bar{flex:1;height:6px;background:var(--border2);border-radius:3px;overflow:hidden;min-width:60px;}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--teal));border-radius:3px;transition:width .22s;}
+
+.export-btn{background:var(--green-bg);border:1px solid var(--green-bd);color:var(--green);font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:5px 12px;border-radius:5px;cursor:pointer;transition:all .15s;font-weight:600;white-space:nowrap;}
+.export-btn:hover{background:var(--green);color:#fff;}
+
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;padding:9px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;align-items:center;}
+.legend-item{display:flex;align-items:center;gap:5px;font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--text2);font-weight:500;}
+.legend-box{width:20px;height:13px;border-radius:3px;flex-shrink:0;border:1px solid transparent;}
+.lb-IF{background:var(--if-bg);border-color:var(--if-bd);}
+.lb-ID{background:var(--id-bg);border-color:var(--id-bd);}
+.lb-EX{background:var(--ex-bg);border-color:var(--ex-bd);}
+.lb-MEM{background:var(--mem-bg);border-color:var(--mem-bd);}
+.lb-WB{background:var(--wb-bg);border-color:var(--wb-bd);}
+.lb-STALL{background:var(--stall-bg);border-color:var(--stall-bd);border-style:dashed;}
+.lb-FWD{background:var(--fwd-bg);border-color:var(--fwd-bd);}
+.lb-FLUSH{background:var(--flush-bg);border-color:var(--flush-bd);border-style:dashed;}
+.lb-STRUCT{background:var(--struct-bg);border-color:var(--struct-bd);border-style:dashed;}
+.lb-CACHE{background:var(--cache-bg);border-color:var(--cache-bd);border-style:dotted;}
+
+.section-header{display:flex;align-items:center;gap:12px;margin-bottom:10px;}
+.section-title{font-size:0.68rem;font-weight:700;letter-spacing:2px;color:var(--text2);text-transform:uppercase;white-space:nowrap;}
+.section-line{flex:1;height:1px;background:var(--border);}
+
+.pipeline-section{margin-bottom:18px;}
+.pipeline-wrapper{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;overflow-x:auto;}
+#pipeline-canvas-container{position:relative;min-height:160px;}
+
+table.pipeline-table{border-collapse:separate;border-spacing:3px;width:100%;min-width:700px;}
+table.pipeline-table th{font-family:'JetBrains Mono',monospace;font-size:0.67rem;color:var(--muted);font-weight:600;padding:4px 7px;text-align:center;white-space:nowrap;background:var(--surface2);border-radius:4px;transition:background .2s,color .2s;}
+table.pipeline-table th:first-child{text-align:left;background:transparent;}
+table.pipeline-table th.col-active{background:var(--blue)!important;color:#fff!important;box-shadow:0 2px 8px rgba(37,99,235,.35);}
+table.pipeline-table td{height:38px;min-width:58px;text-align:center;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:0.68rem;font-weight:600;vertical-align:middle;transition:opacity .18s,filter .18s;}
+table.pipeline-table.step-mode td.col-dim,table.pipeline-table.step-mode th.col-dim{opacity:.22;filter:saturate(.15);}
+table.pipeline-table.step-mode td.col-active-cell{outline:2px solid var(--blue);outline-offset:-2px;}
+
+.stage-IF{background:var(--if-bg);border:1px solid var(--if-bd);color:var(--if-tx);}
+.stage-ID{background:var(--id-bg);border:1px solid var(--id-bd);color:var(--id-tx);}
+.stage-EX{background:var(--ex-bg);border:1px solid var(--ex-bd);color:var(--ex-tx);}
+.stage-MEM{background:var(--mem-bg);border:1px solid var(--mem-bd);color:var(--mem-tx);}
+.stage-WB{background:var(--wb-bg);border:1px solid var(--wb-bd);color:var(--wb-tx);}
+.stage-STALL{background:var(--stall-bg);border:1px dashed var(--stall-bd);color:var(--stall-tx);}
+.stage-EMPTY{background:transparent;border:1px solid transparent;color:transparent;}
+.stage-FORWARD{background:var(--fwd-bg);border:1px solid var(--fwd-bd);color:var(--fwd-tx);}
+.stage-FLUSH{background:var(--flush-bg);border:1px dashed var(--flush-bd);color:var(--flush-tx);}
+.stage-STRUCT{background:var(--struct-bg);border:1px dashed var(--struct-bd);color:var(--struct-tx);}
+.stage-CACHE{background:var(--cache-bg);border:1px dotted var(--cache-bd);color:var(--cache-tx);}
+
+.row-inst-label{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--text);white-space:nowrap;padding-right:12px;text-align:left;min-width:190px;}
+.inst-index{color:var(--muted);font-size:0.63rem;}
+
+/* TABS */
+.tabs{display:flex;gap:3px;margin-bottom:14px;border-bottom:2px solid var(--border);}
+.tab-btn{background:none;border:none;padding:7px 15px;font-family:'Inter',sans-serif;font-size:0.78rem;font-weight:500;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s;border-radius:6px 6px 0 0;}
+.tab-btn:hover{color:var(--text2);background:var(--surface2);}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:600;}
+.tab-panel{display:none;}.tab-panel.active{display:block;}
+
+.hazard-panel{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:18px;flex-wrap:wrap;}
+.hazard-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:15px 16px;}
+.hazard-card.card-data{border-left:3px solid var(--red);}
+.hazard-card.card-ctrl{border-left:3px solid var(--yellow);}
+.hazard-card.card-fwd{border-left:3px solid var(--teal);}
+.hazard-card.card-struct{border-left:3px solid var(--purple);}
+.hazard-card.card-cache{border-left:3px solid var(--orange);}
+.hazard-title{font-size:0.7rem;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;margin-bottom:11px;display:flex;align-items:center;gap:8px;}
+.htag{font-size:0.57rem;padding:2px 7px;border-radius:10px;font-family:'JetBrains Mono',monospace;margin-left:auto;font-weight:600;}
+.htag.data{background:var(--red-bg);color:var(--red);border:1px solid var(--red-bd);}
+.htag.ctrl{background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--yellow-bd);}
+.htag.fwd-tag{background:var(--teal-bg);color:var(--teal);border:1px solid var(--teal-bd);}
+.htag.struct{background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple-bd);}
+.htag.cache{background:var(--orange-bg);color:var(--orange);border:1px solid var(--orange-bd);}
+.hazard-list{list-style:none;}
+.hazard-list li{padding:6px 0;border-bottom:1px solid var(--border2);font-size:0.78rem;display:flex;align-items:flex-start;gap:8px;line-height:1.4;}
+.hazard-list li:last-child{border-bottom:none;}
+.hz-icon{font-size:0.88rem;flex-shrink:0;margin-top:1px;}
+.hz-main{font-weight:600;color:var(--text);}
+.hz-detail{font-size:0.67rem;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px;display:block;line-height:1.5;}
+.fwd-path-item{display:flex;align-items:center;gap:6px;padding:5px 0;font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--teal);border-bottom:1px solid var(--border2);}
+.fwd-path-item:last-child{border-bottom:none;}
+.fwd-arrow{color:var(--yellow);font-weight:bold;}
+
+/* REGISTER FILE */
+.reg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:5px;margin-top:10px;}
+.reg-cell{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 7px;text-align:center;transition:all .3s;}
+.reg-cell.dirty{background:var(--yellow-bg);border-color:var(--yellow-bd);}
+.reg-cell.just-written{background:var(--green-bg);border-color:var(--green-bd);animation:rfla .7s ease;}
+@keyframes rfla{0%{background:#bbf7d0;transform:scale(1.1);}100%{background:var(--green-bg);transform:scale(1);}}
+.reg-name{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--muted);font-weight:600;}
+.reg-val{font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:700;color:var(--text);margin-top:2px;}
+
+.cycle-log{max-height:130px;overflow-y:auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-family:'JetBrains Mono',monospace;font-size:0.68rem;line-height:1.75;margin-top:9px;}
+.log-line{color:var(--text2);}.log-stall{color:var(--red);}.log-fwd{color:var(--teal);}
+.log-wb{color:var(--green);}.log-cache{color:var(--orange);}.log-struct{color:var(--purple);}.log-flush{color:var(--yellow);}
+
+/* CACHE */
+.cache-config{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;}
+.cache-config label{font-size:0.7rem;color:var(--text2);font-weight:600;}
+.cache-config select,.cache-config input[type=number]{font-family:'JetBrains Mono',monospace;font-size:0.7rem;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 7px;border-radius:5px;margin-top:2px;display:block;}
+.cfg-group{display:flex;flex-direction:column;gap:2px;}
+.cache-stats-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+.cstat{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 11px;font-family:'JetBrains Mono',monospace;font-size:0.72rem;flex:1;min-width:70px;text-align:center;}
+.cstat .cv{font-size:1.05rem;font-weight:700;}
+.cache-lines{display:grid;grid-template-columns:repeat(auto-fill,minmax(105px,1fr));gap:5px;margin-top:8px;max-height:240px;overflow-y:auto;}
+.cache-line{border:1px solid var(--border);border-radius:5px;padding:5px 7px;background:var(--surface2);font-family:'JetBrains Mono',monospace;font-size:0.63rem;}
+.cache-line.hit{background:var(--green-bg);border-color:var(--green-bd);}
+.cache-line.miss{background:var(--red-bg);border-color:var(--red-bd);border-style:dashed;}
+.cl-set{color:var(--muted);font-size:0.59rem;}.cl-tag{font-weight:700;color:var(--text);}.cl-state{font-size:0.59rem;margin-top:2px;}
+
+.empty-state{color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:0.78rem;text-align:center;padding:46px 0;line-height:2;}
+.empty-state .arrow{font-size:1.4rem;display:block;margin-bottom:7px;}
+.parse-error{background:var(--red-bg);border:1px solid var(--red-bd);border-radius:6px;padding:7px 11px;font-size:0.73rem;color:var(--red);font-family:'JetBrains Mono',monospace;margin-top:7px;display:none;}
+
+td[title]{position:relative;}
+footer{text-align:center;padding:16px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:0.62rem;border-top:1px solid var(--border);margin-top:26px;background:var(--surface);letter-spacing:1px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🔁 Pipeline Staller Simulator</h1>
+    <div class="subtitle">5-STAGE MIPS &nbsp;·&nbsp; IF→ID→EX→MEM→WB &nbsp;·&nbsp; DATA · CONTROL · STRUCTURAL · CACHE HAZARDS</div>
+  </div>
+  <div class="badge">COA PROJECT</div>
+</header>
+
+<div class="container">
+
+<!-- CONTROL PANEL -->
+<div class="control-panel">
+  <div class="card" style="grid-column:1/3;">
+    <div class="card-title"><span class="dot"></span> Instruction Sequence</div>
+    <textarea class="instruction-input" id="inst-input" spellcheck="false"
+      placeholder="Enter MIPS-style instructions, one per line…&#10;e.g.  ADD R1, R2, R3&#10;      LW  R4, 0(R1)"></textarea>
+    <div class="input-hint">ADD SUB AND OR XOR NOR SLT LW SW BEQ BNE MUL DIV — registers R0–R31 — offsets as 0(R1)</div>
+    <div id="parse-error" class="parse-error"></div>
+    <div class="presets">
+      <span style="font-size:0.67rem;color:var(--muted);font-weight:600;">Presets:</span>
+      <button class="preset-btn" onclick="loadPreset('raw')">RAW Hazard</button>
+      <button class="preset-btn" onclick="loadPreset('load-use')">Load-Use</button>
+      <button class="preset-btn" onclick="loadPreset('branch')">Branch Hazard</button>
+      <button class="preset-btn" onclick="loadPreset('forwarding')">Forwarding</button>
+      <button class="preset-btn" onclick="loadPreset('struct')">Structural</button>
+      <button class="preset-btn" onclick="loadPreset('cache')">Cache Miss</button>
+      <button class="preset-btn" onclick="loadPreset('combined')">Full Combined</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="dot"></span> Simulation Options</div>
+    <div class="option-row">
+      <div class="toggle-row">
+        <div><div class="toggle-label">Data Forwarding</div><div class="toggle-sub">EX→EX, MEM→EX paths</div></div>
+        <label class="toggle"><input type="checkbox" id="opt-forwarding" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="toggle-label">Branch Prediction</div><div class="toggle-sub">Predict not-taken (1 flush vs 2)</div></div>
+        <label class="toggle"><input type="checkbox" id="opt-branch-pred"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="toggle-label">Structural Hazards</div><div class="toggle-sub">Single MEM port, shared multiplier</div></div>
+        <label class="toggle"><input type="checkbox" id="opt-structural"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="toggle-label">Cache Miss Penalty</div><div class="toggle-sub">Simulate I$/D$ misses on LW/SW</div></div>
+        <label class="toggle"><input type="checkbox" id="opt-cache"><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div><div class="toggle-label">Highlight Hazards</div><div class="toggle-sub">Glow on stall/forward cells</div></div>
+        <label class="toggle"><input type="checkbox" id="opt-highlight" checked><span class="slider"></span></label>
+      </div>
+    </div>
+    <button class="run-btn" onclick="simulate()">▶  Run Simulation</button>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-title" style="margin-bottom:10px;"><span class="dot"></span> Performance Metrics</div>
+  <div class="stats-row">
+    <div class="stat-chip"><div class="val blue"   id="stat-cycles">—</div><div class="lbl">Total Cycles</div></div>
+    <div class="stat-chip"><div class="val green"  id="stat-insts">—</div><div class="lbl">Instructions</div></div>
+    <div class="stat-chip"><div class="val red"    id="stat-stalls">—</div><div class="lbl">Stall Cycles</div></div>
+    <div class="stat-chip"><div class="val yellow" id="stat-data-hz">—</div><div class="lbl">Data Hazards</div></div>
+    <div class="stat-chip"><div class="val yellow" id="stat-ctrl-hz">—</div><div class="lbl">Control Hz.</div></div>
+    <div class="stat-chip"><div class="val purple" id="stat-struct-hz">—</div><div class="lbl">Structural Hz.</div></div>
+    <div class="stat-chip"><div class="val orange" id="stat-cache-miss">—</div><div class="lbl">Cache Misses</div></div>
+    <div class="stat-chip"><div class="val teal"   id="stat-fwd">—</div><div class="lbl">Forwardings</div></div>
+    <div class="stat-chip"><div class="val blue"   id="stat-cpi">—</div><div class="lbl">CPI</div></div>
+    <div class="stat-chip"><div class="val green"  id="stat-eff">—</div><div class="lbl">Efficiency</div></div>
+  </div>
+</div>
+
+<!-- STEP CONTROLS -->
+<div class="step-controls" id="step-controls" style="display:none;">
+  <button class="step-btn" id="btn-prev" onclick="stepPrev()" disabled>◀ Prev</button>
+  <button class="step-btn" id="btn-next" onclick="stepNext()">Next ▶</button>
+  <button class="step-btn" id="btn-play" onclick="togglePlay()">⏵ Play</button>
+  <button class="step-btn" onclick="resetView()">↺ Reset</button>
+  <div class="cycle-display" id="cycle-display">CYCLE 1</div>
+  <span class="speed-label">Speed:</span>
+  <select class="speed-select" id="speed-select">
+    <option value="800">Slow</option>
+    <option value="400" selected>Normal</option>
+    <option value="160">Fast</option>
+    <option value="50">Turbo</option>
+  </select>
+  <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+  <button class="export-btn" onclick="exportPNG()">📷 PNG</button>
+  <button class="export-btn" onclick="exportCSV()">📊 CSV</button>
+</div>
+
+<!-- LEGEND -->
+<div class="legend">
+  <span style="font-size:0.67rem;font-weight:600;color:var(--muted);">Legend:</span>
+  <div class="legend-item"><div class="legend-box lb-IF"></div>IF</div>
+  <div class="legend-item"><div class="legend-box lb-ID"></div>ID</div>
+  <div class="legend-item"><div class="legend-box lb-EX"></div>EX</div>
+  <div class="legend-item"><div class="legend-box lb-MEM"></div>MEM</div>
+  <div class="legend-item"><div class="legend-box lb-WB"></div>WB</div>
+  <div class="legend-item"><div class="legend-box lb-STALL"></div>STALL</div>
+  <div class="legend-item"><div class="legend-box lb-FWD"></div>EX* Forwarded</div>
+  <div class="legend-item"><div class="legend-box lb-FLUSH"></div>FLUSH</div>
+  <div class="legend-item"><div class="legend-box lb-STRUCT"></div>STRUCT</div>
+  <div class="legend-item"><div class="legend-box lb-CACHE"></div>$MISS</div>
+</div>
+
+<!-- PIPELINE DIAGRAM -->
+<div class="pipeline-section">
+  <div class="section-header">
+    <div class="section-title">Pipeline Execution Diagram</div>
+    <div class="section-line"></div>
+  </div>
+  <div class="pipeline-wrapper" id="pipeline-export-target">
+    <div id="pipeline-canvas-container">
+      <div class="empty-state">
+        <span class="arrow">↑</span>
+        Enter instructions above and click <strong>Run Simulation</strong>.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL TABS -->
+<div id="detail-tabs" style="display:none;">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('tab-hazards',this)">⚡ Hazard Analysis</button>
+    <button class="tab-btn" onclick="switchTab('tab-registers',this)">🗂 Register File</button>
+    <button class="tab-btn" onclick="switchTab('tab-cache',this)">💾 Cache Simulator</button>
+  </div>
+
+  <!-- HAZARD TAB -->
+  <div class="tab-panel active" id="tab-hazards">
+    <div class="hazard-panel" id="hazard-panel">
+      <div class="hazard-card card-data">
+        <div class="hazard-title" style="color:var(--red);">⚡ Data Hazards <span class="htag data">RAW</span></div>
+        <ul class="hazard-list" id="data-hazard-list"></ul>
+      </div>
+      <div class="hazard-card card-ctrl">
+        <div class="hazard-title" style="color:var(--yellow);">⟳ Control Hazards <span class="htag ctrl">BRANCH</span></div>
+        <ul class="hazard-list" id="ctrl-hazard-list"></ul>
+      </div>
+      <div class="hazard-card card-fwd" id="fwd-section" style="display:none;">
+        <div class="hazard-title" style="color:var(--teal);">↪ Forwarding Paths <span class="htag fwd-tag">ACTIVE</span></div>
+        <div id="fwd-paths-list"></div>
+      </div>
+      <div class="hazard-card card-struct" id="struct-section" style="display:none;">
+        <div class="hazard-title" style="color:var(--purple);">🔒 Structural Hazards <span class="htag struct">RESOURCE</span></div>
+        <ul class="hazard-list" id="struct-hazard-list"></ul>
+      </div>
+      <div class="hazard-card card-cache" id="cache-hz-section" style="display:none;">
+        <div class="hazard-title" style="color:var(--orange);">💾 Cache Hazards <span class="htag cache">MISS</span></div>
+        <ul class="hazard-list" id="cache-hazard-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- REGISTER TAB -->
+  <div class="tab-panel" id="tab-registers">
+    <div class="card">
+      <div class="card-title"><span class="dot" style="background:var(--green)"></span>
+        Register File — Cycle <span id="reg-cycle-lbl" style="color:var(--blue)">—</span>
+        <span style="margin-left:auto;font-size:0.65rem;color:var(--muted);">🟡 = will write &nbsp; 🟢 = just written</span>
+      </div>
+      <div class="reg-grid" id="reg-grid"></div>
+      <div class="cycle-log" id="cycle-log"><span style="color:var(--muted)">Step through cycles to see per-cycle events here.</span></div>
+    </div>
+  </div>
+
+  <!-- CACHE TAB -->
+  <div class="tab-panel" id="tab-cache">
+    <div class="card">
+      <div class="card-title"><span class="dot" style="background:var(--orange)"></span> Cache Configuration &amp; State</div>
+      <div class="cache-config">
+        <div class="cfg-group"><label>Cache Size<select id="cache-size"><option value="8">8 lines</option><option value="16" selected>16 lines</option><option value="32">32 lines</option></select></label></div>
+        <div class="cfg-group"><label>Associativity<select id="cache-assoc"><option value="1" selected>Direct-mapped</option><option value="2">2-way</option><option value="4">4-way</option></select></label></div>
+        <div class="cfg-group"><label>Miss Penalty (cycles)<input type="number" id="cache-penalty" value="4" min="1" max="20" style="width:80px;"></label></div>
+        <div class="cfg-group"><label>Miss Rate Mode<select id="cache-miss-mode"><option value="auto">Auto (addr-based)</option><option value="25">~25% miss rate</option><option value="50">~50% miss rate</option><option value="75">~75% miss rate</option></select></label></div>
+      </div>
+      <div class="cache-stats-row">
+        <div class="cstat"><div class="cv" id="cs-accesses" style="color:var(--blue)">0</div><div>Accesses</div></div>
+        <div class="cstat"><div class="cv" id="cs-hits"     style="color:var(--green)">0</div><div>Hits</div></div>
+        <div class="cstat"><div class="cv" id="cs-misses"   style="color:var(--red)">0</div><div>Misses</div></div>
+        <div class="cstat"><div class="cv" id="cs-rate"     style="color:var(--teal)">—</div><div>Hit Rate</div></div>
+        <div class="cstat"><div class="cv" id="cs-stalls"   style="color:var(--orange)">0</div><div>Stall Cycles</div></div>
+      </div>
+      <div class="cache-lines" id="cache-lines"></div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+<footer>PIPELINE STALLER SIMULATOR &nbsp;·&nbsp; 5-STAGE MIPS &nbsp;·&nbsp; COA PROJECT &nbsp;·&nbsp; IF→ID→EX→MEM→WB</footer>
+
+<script>
+// ═══════════════════════════════════════════
+//  PRESETS
+// ═══════════════════════════════════════════
+const PRESETS = {
+  raw:        `ADD R1, R2, R3\nSUB R4, R1, R5\nAND R6, R1, R7`,
+  'load-use': `LW  R1, 0(R2)\nADD R3, R1, R4\nSUB R5, R3, R6`,
+  branch:     `BEQ R1, R2, label\nADD R3, R4, R5\nSUB R6, R7, R8\nLW  R9, 0(R1)`,
+  forwarding: `ADD R1, R2, R3\nSUB R4, R1, R5\nAND R6, R4, R7\nOR  R8, R1, R6`,
+  struct:     `MUL R1, R2, R3\nMUL R4, R5, R6\nADD R7, R1, R4\nLW  R8, 0(R1)\nLW  R9, 4(R1)`,
+  cache:      `LW  R1, 0(R2)\nLW  R3, 64(R2)\nADD R4, R1, R3\nSW  R4, 128(R2)\nLW  R5, 192(R2)`,
+  combined:   `LW  R1, 0(R2)\nADD R3, R1, R4\nBEQ R3, R5, done\nMUL R6, R3, R7\nAND R8, R6, R1\nSW  R8, 0(R2)\nOR  R9, R8, R3`
+};
+
+function loadPreset(n){ document.getElementById('inst-input').value=PRESETS[n]; document.getElementById('parse-error').style.display='none'; }
+
+// ═══════════════════════════════════════════
+//  PARSER
+// ═══════════════════════════════════════════
+function parseInst(line) {
+  line = line.trim();
+  if (!line || line.startsWith('//') || line.startsWith('#')) return null;
+  const isBranch = /^(BEQ|BNE|BLT|BGT|BLE|BGE|J\b|JR|JAL)\b/i.test(line);
+  const isLoad   = /^(LW|LB|LH|LD)\b/i.test(line);
+  const isStore  = /^(SW|SB|SH|SD)\b/i.test(line);
+  const isMul    = /^(MUL|MULT|DIV)\b/i.test(line);
+  const mnem     = line.split(/[\s,]+/)[0].toUpperCase();
+  const regs     = (line.match(/\bR\d+\b/gi)||[]).map(r=>r.toUpperCase());
+  const offMatch = line.match(/(-?\d+)\s*\(/);
+  const addrOffset = offMatch ? parseInt(offMatch[1]) : 0;
+  let dest=null,src1=null,src2=null;
+  if (isStore)       { src1=regs[0]||null; src2=regs[1]||null; }
+  else if (isBranch) { src1=regs[0]||null; src2=regs[1]||null; }
+  else { dest=regs[0]||null; src1=regs[1]||null; src2=isLoad?null:(regs[2]||null); }
+  return { text:line, mnem, isBranch, isLoad, isStore, isMul, dest, src1, src2, addrOffset };
+}
+
+// ═══════════════════════════════════════════
+//  CACHE MODEL
+// ═══════════════════════════════════════════
+class CacheModel {
+  constructor(numLines, assoc, penalty, missMode) {
+    this.numLines=numLines; this.assoc=assoc; this.penalty=penalty; this.missMode=missMode;
+    this.numSets = numLines / assoc;
+    this.sets = Array.from({length:this.numSets},(_,si)=>
+      Array.from({length:assoc},(_,w)=>({tag:-1,valid:false,lru:w})));
+    this.hits=0; this.misses=0; this.accessLog=[];
+  }
+  access(address, instrIdx) {
+    const tag=Math.floor(address/this.numSets), set=address%this.numSets;
+    const ways=this.sets[set];
+    let isHit;
+    if (this.missMode!=='auto') {
+      const rate=parseInt(this.missMode)/100;
+      isHit=((instrIdx*7+3)%100)>=(rate*100);
+    } else {
+      isHit=ways.some(w=>w.valid&&w.tag===tag);
+    }
+    this.accessLog.push({address,set,tag,hit:isHit,instrIdx});
+    if (isHit) {
+      this.hits++;
+      const hw=ways.findIndex(w=>w.valid&&w.tag===tag);
+      if(hw>=0){const lv=ways[hw].lru;ways.forEach(w=>{if(w.lru<lv)w.lru++;});ways[hw].lru=0;}
+    } else {
+      this.misses++;
+      const ev=ways.reduce((b,w,i)=>w.lru>ways[b].lru?i:b,0);
+      ways.forEach(w=>w.lru++);
+      ways[ev]={tag,valid:true,lru:0};
+    }
+    return isHit;
+  }
+  get hitRate(){const t=this.hits+this.misses;return t===0?'—':((this.hits/t)*100).toFixed(1)+'%';}
+}
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+let simResult=null, cacheModel=null, currentCycle=1, playing=false, playTimer=null;
+
+function makeInitialRegs(){
+  const r={'R0':0};
+  for(let i=1;i<=31;i++) r[`R${i}`]=i*4;
+  return r;
+}
+
+// ═══════════════════════════════════════════
+//  SIMULATE ENTRY POINT
+// ═══════════════════════════════════════════
+function simulate() {
+  const lines = document.getElementById('inst-input').value.split('\n');
+  const insts = lines.map(parseInst).filter(Boolean);
+  const errEl = document.getElementById('parse-error');
+  if (!insts.length) { errEl.textContent='No valid instructions found.'; errEl.style.display='block'; return; }
+  errEl.style.display='none';
+
+  const forwarding  = document.getElementById('opt-forwarding').checked;
+  const branchPred  = document.getElementById('opt-branch-pred').checked;
+  const structural  = document.getElementById('opt-structural').checked;
+  const cacheEnable = document.getElementById('opt-cache').checked;
+  const numLines    = parseInt(document.getElementById('cache-size').value);
+  const assoc       = parseInt(document.getElementById('cache-assoc').value);
+  const penalty     = parseInt(document.getElementById('cache-penalty').value)||4;
+  const missMode    = document.getElementById('cache-miss-mode').value;
+  cacheModel = new CacheModel(numLines,assoc,penalty,missMode);
+
+  const result = runPipeline(insts,forwarding,branchPred,structural,cacheEnable,cacheModel,penalty);
+  simResult = result;
+
+  renderStats(result,insts.length);
+  renderTable(result);
+  renderHazards(result);
+  renderCachePanel(result);
+
+  document.getElementById('step-controls').style.display='flex';
+  document.getElementById('detail-tabs').style.display='block';
+  currentCycle=result.totalCycles;
+  buildRegGrid(makeInitialRegs());
+  updateCycleDisplay();
+  document.getElementById('cycle-log').innerHTML='<span style="color:var(--muted)">Step through cycles to see events.</span>';
+}
+
+// ═══════════════════════════════════════════
+//  PIPELINE CORE
+// ═══════════════════════════════════════════
+function runPipeline(insts,forwarding,branchPred,structural,cacheEnable,cacheModel,cachePenalty) {
+  const STAGES=['IF','ID','EX','MEM','WB'];
+  const N=insts.length;
+  const dataHazards=[],ctrlHazards=[],structHazards=[],cacheHazards=[],fwdPaths=[];
+  const startCycle=new Array(N).fill(0);
+  const stallsBefore=new Array(N).fill(0);
+  const mulOccupied={}, memOccupied={};
+
+  // Pass 1: data + cache stalls
+  for (let i=0;i<N;i++) {
+    let baseStart=(i===0)?1:startCycle[i-1]+1;
+    let extra=0;
+    const curr=insts[i];
+
+    // DATA HAZARDS
+    for (let j=Math.max(0,i-4);j<i;j++) {
+      const prev=insts[j];
+      if(!prev.dest) continue;
+      const srcs=[curr.src1,curr.src2].filter(Boolean);
+      if(!srcs.includes(prev.dest)) continue;
+      const mulLat=prev.isMul?4:0;
+      let stalls;
+      if(prev.isLoad)      stalls=forwarding?Math.max(0,(startCycle[j]+3)-(baseStart+extra+2)):Math.max(0,(startCycle[j]+4)-(baseStart+extra+1));
+      else if(prev.isMul)  stalls=forwarding?Math.max(0,(startCycle[j]+2+mulLat)-(baseStart+extra+2)):Math.max(0,(startCycle[j]+4+mulLat)-(baseStart+extra+1));
+      else                 stalls=forwarding?Math.max(0,(startCycle[j]+2)-(baseStart+extra+2)):Math.max(0,(startCycle[j]+4)-(baseStart+extra+1));
+      if(stalls>0){
+        extra=Math.max(extra,stalls);
+        if(!dataHazards.some(h=>h.producer===j&&h.consumer===i))
+          dataHazards.push({type:prev.isLoad?'Load-Use (RAW)':prev.isMul?'MUL-Result (RAW)':'RAW',producer:j,consumer:i,reg:prev.dest,stalls,forwarded:forwarding&&stalls<=(prev.isLoad?1:0)});
+      }
+      if(forwarding&&!fwdPaths.some(f=>f.from===j&&f.to===i))
+        fwdPaths.push({from:j,to:i,reg:prev.dest,fromStage:prev.isMul?'EX(mul)':prev.isLoad?'MEM':'EX',toStage:'EX'});
+    }
+
+    // CACHE MISS
+    if(cacheEnable&&(curr.isLoad||curr.isStore)){
+      const caddr=Math.floor(Math.abs(curr.addrOffset)/4)+(i*3);
+      const hit=cacheModel.access(caddr,i);
+      if(!hit){ extra+=cachePenalty; cacheHazards.push({inst:i,penalty:cachePenalty,address:caddr,type:curr.isLoad?'D-Cache Read Miss':'D-Cache Write Miss'}); }
+    }
+
+    startCycle[i]=baseStart+extra;
+    stallsBefore[i]=extra;
+  }
+
+  // Pass 1b: branch penalties
+  for(let i=0;i<N;i++){
+    if(!insts[i].isBranch) continue;
+    const penalty=branchPred?1:2;
+    ctrlHazards.push({inst:i,penalty,predicted:branchPred});
+    for(let k=i+1;k<N;k++){
+      const shift=Math.max(0,penalty-(k-i-1));
+      if(shift>0){startCycle[k]+=shift;if(k-i<=penalty)stallsBefore[k]+=shift;}
+    }
+  }
+
+  // Pass 1c: structural hazards
+  if(structural){
+    for(let i=0;i<N;i++){
+      const curr=insts[i];
+      if(curr.isMul){
+        const exS=startCycle[i]+2;
+        for(let c=exS;c<exS+4;c++){
+          if(mulOccupied[c]!==undefined&&mulOccupied[c]!==i){
+            const needed=exS-startCycle[i]+1;
+            startCycle[i]+=needed; stallsBefore[i]+=needed;
+            structHazards.push({type:'Multiplier Conflict',inst1:mulOccupied[c],inst2:i,stalls:needed,cycle:c});
+            break;
+          }
+        }
+        const exS2=startCycle[i]+2;
+        for(let c=exS2;c<exS2+4;c++) mulOccupied[c]=i;
+      }
+      if(curr.isLoad||curr.isStore){
+        const mc=startCycle[i]+3;
+        if(memOccupied[mc]!==undefined&&memOccupied[mc]!==i){
+          startCycle[i]++; stallsBefore[i]++;
+          structHazards.push({type:'MEM Port Conflict',inst1:memOccupied[mc],inst2:i,stalls:1,cycle:mc});
+        }
+        memOccupied[startCycle[i]+3]=i;
+      }
+    }
+  }
+
+  // Rebuild fwdPaths with final startCycles
+  fwdPaths.length=0;
+  for(const h of dataHazards){
+    const j=h.producer,k=h.consumer;
+    const pEX=startCycle[j]+2,cEX=startCycle[k]+2;
+    if(!fwdPaths.some(f=>f.from===j&&f.to===k))
+      fwdPaths.push({from:j,to:k,reg:h.reg,fromStage:(pEX<=cEX)?'EX':'MEM',toStage:'EX'});
+  }
+
+  const totalCycles=startCycle[N-1]+STAGES.length-1;
+  const grid=insts.map(()=>[]);
+  for(let i=0;i<N;i++){
+    const s=startCycle[i];
+    for(let c=1;c<=totalCycles;c++){
+      const si=c-s;
+      if(si<0||si>=STAGES.length){ grid[i].push({cycle:c,stage:'EMPTY'}); }
+      else{
+        const stage=STAGES[si];
+        const isFwd=forwarding&&fwdPaths.some(f=>f.to===i&&stage==='EX');
+        const isMiss=cacheEnable&&cacheHazards.some(ch=>ch.inst===i&&stage==='MEM');
+        grid[i].push({cycle:c,stage:isMiss?'CACHE':isFwd?'FWD':stage});
+      }
+    }
+    grid[i].stallsBefore=stallsBefore[i];
+  }
+
+  return {
+    insts,grid,startCycle,stallsBefore,totalCycles,
+    dataHazards,ctrlHazards,structHazards,cacheHazards,fwdPaths,
+    stallCount:stallsBefore.reduce((a,b)=>a+b,0),
+    ctrlStalls:ctrlHazards.reduce((a,h)=>a+h.penalty,0),
+    forwarding,structural,cacheEnabled:cacheEnable
+  };
+}
+
+// ═══════════════════════════════════════════
+//  RENDER TABLE — with optional cycle highlight
+// ═══════════════════════════════════════════
+function renderTable(result, activeCycle) {
+  const {insts,startCycle,stallsBefore,totalCycles,ctrlHazards,fwdPaths,forwarding,cacheHazards}=result;
+  const highlight=document.getElementById('opt-highlight').checked;
+  const stepMode=activeCycle!==undefined;
+  const N=insts.length;
+  const STAGES=['IF','ID','EX','MEM','WB'];
+
+  const flushMap={};
+  ctrlHazards.forEach(h=>{ for(let p=1;p<=h.penalty;p++) flushMap[startCycle[h.inst]+1+p]=true; });
+
+  let html=`<table class="pipeline-table${stepMode?' step-mode':''}">`;
+  html+='<tr><th style="text-align:left;background:transparent;">Instruction</th>';
+  for(let c=1;c<=totalCycles;c++){
+    const isAct=stepMode&&c===activeCycle;
+    html+=`<th class="${isAct?'col-active':stepMode?'col-dim':''}"${flushMap[c]?' style="color:var(--yellow)"':''}>C${c}</th>`;
+  }
+  html+='</tr>';
+
+  for(let i=0;i<N;i++){
+    const s=startCycle[i], st=stallsBefore[i], inst=insts[i];
+    html+='<tr>';
+    html+=`<td class="row-inst-label"><span class="inst-index">I${i}:&nbsp;</span><span style="color:var(--blue);font-weight:700;">${e(inst.mnem)}</span>&nbsp;<span style="color:var(--text2)">${e(inst.text.replace(inst.mnem,'').trim().substring(0,22))}</span></td>`;
+    for(let c=1;c<=totalCycles;c++){
+      const si=c-s;
+      let cls='stage-EMPTY',lbl='',ext='';
+      const isAct=stepMode&&c===activeCycle, isDim=stepMode&&c!==activeCycle;
+      if(c>=s-st&&c<s){
+        cls='stage-STALL';lbl='STALL';
+        if(highlight) ext='box-shadow:0 0 0 2px rgba(220,38,38,.3) inset;';
+      } else if(si>=0&&si<STAGES.length){
+        const stage=STAGES[si];
+        const isFwd=forwarding&&fwdPaths.some(f=>f.to===i&&stage==='EX');
+        const isMiss=cacheHazards.some(ch=>ch.inst===i&&stage==='MEM');
+        if(isMiss){cls='stage-CACHE';lbl='$MISS';}
+        else if(isFwd){cls='stage-FORWARD';lbl='EX*';if(highlight)ext='box-shadow:0 0 0 2px rgba(8,145,178,.35) inset;';}
+        else{cls=`stage-${stage}`;lbl=stage;}
+      }
+      const ccls=isAct?'col-active-cell':isDim?'col-dim':'';
+      html+=`<td class="${cls}${ccls?' '+ccls:''}" style="${ext}" title="I${i}: ${e(inst.text.trim())} | C${c} | ${lbl||'—'}">${lbl}</td>`;
+    }
+    html+='</tr>';
+    const bh=ctrlHazards.find(h=>h.inst===i);
+    if(bh){
+      for(let p=1;p<=bh.penalty;p++){
+        const fc=s+1+p;
+        html+='<tr>';
+        html+=`<td class="row-inst-label" style="color:var(--yellow);font-size:0.63rem;">↳ FLUSH #${p}</td>`;
+        for(let c=1;c<=totalCycles;c++){
+          const isAct=stepMode&&c===activeCycle, isDim=stepMode&&c!==activeCycle;
+          const ccls=isAct?'col-active-cell':isDim?'col-dim':'';
+          html+=c===fc?`<td class="stage-FLUSH${ccls?' '+ccls:''}">FLUSH</td>`:`<td class="stage-EMPTY${ccls?' '+ccls:''}"></td>`;
+        }
+        html+='</tr>';
+      }
+    }
+  }
+  html+='</table>';
+  document.getElementById('pipeline-canvas-container').innerHTML=html;
+}
+
+function e(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// ═══════════════════════════════════════════
+//  STATS
+// ═══════════════════════════════════════════
+function renderStats(r,n){
+  const all=r.stallCount+r.ctrlStalls;
+  document.getElementById('stat-cycles').textContent   =r.totalCycles;
+  document.getElementById('stat-insts').textContent    =n;
+  document.getElementById('stat-stalls').textContent   =all;
+  document.getElementById('stat-data-hz').textContent  =r.dataHazards.length;
+  document.getElementById('stat-ctrl-hz').textContent  =r.ctrlHazards.length;
+  document.getElementById('stat-struct-hz').textContent=r.structHazards.length;
+  document.getElementById('stat-cache-miss').textContent=r.cacheHazards.length;
+  document.getElementById('stat-fwd').textContent      =r.fwdPaths.length;
+  document.getElementById('stat-cpi').textContent      =(r.totalCycles/n).toFixed(2);
+  document.getElementById('stat-eff').textContent      =((n/r.totalCycles)*100).toFixed(1)+'%';
+}
+
+// ═══════════════════════════════════════════
+//  HAZARDS
+// ═══════════════════════════════════════════
+function renderHazards(r){
+  const {insts,dataHazards,ctrlHazards,structHazards,cacheHazards,fwdPaths,forwarding,structural,cacheEnabled}=r;
+  const dl=document.getElementById('data-hazard-list'); dl.innerHTML='';
+  if(!dataHazards.length) dl.innerHTML='<li><span class="hz-icon">✅</span><div><span class="hz-main">No data hazards.</span></div></li>';
+  else dataHazards.forEach(h=>{
+    const prod=insts[h.producer]?.text.trim()||'',cons=insts[h.consumer]?.text.trim()||'';
+    const icon=h.forwarded?'↪':'⚡',col=h.forwarded?'var(--teal)':'var(--red)';
+    dl.innerHTML+=`<li><span class="hz-icon" style="color:${col}">${icon}</span><div>
+      <span class="hz-main" style="color:${col}">${e(h.type)}</span> on <code style="color:var(--blue);font-family:'JetBrains Mono',monospace">${e(h.reg)}</code>
+      <span class="hz-detail">I${h.producer}: ${e(prod.substring(0,26))} → I${h.consumer}: ${e(cons.substring(0,26))}</span>
+      <span class="hz-detail">${h.stalls>0?h.stalls+' stall(s)':''} ${h.forwarded?'· forwarding applied':''}</span></div></li>`;
+  });
+
+  const cl=document.getElementById('ctrl-hazard-list'); cl.innerHTML='';
+  if(!ctrlHazards.length) cl.innerHTML='<li><span class="hz-icon">✅</span><div><span class="hz-main">No control hazards.</span></div></li>';
+  else ctrlHazards.forEach(h=>{
+    const inst=insts[h.inst]?.text.trim()||'';
+    cl.innerHTML+=`<li><span class="hz-icon" style="color:var(--yellow)">⟳</span><div>
+      <span class="hz-main" style="color:var(--yellow)">Branch Hazard</span>
+      <span class="hz-detail">I${h.inst}: ${e(inst.substring(0,30))}</span>
+      <span class="hz-detail">${h.penalty} cycle(s) flushed · ${h.predicted?'prediction ON':'prediction OFF'}</span></div></li>`;
+  });
+
+  const fs=document.getElementById('fwd-section'),fl=document.getElementById('fwd-paths-list');
+  if(fwdPaths.length>0&&forwarding){
+    fs.style.display='block'; fl.innerHTML='';
+    fwdPaths.forEach(f=>{ fl.innerHTML+=`<div class="fwd-path-item">I${f.from}[${f.fromStage}]<span class="fwd-arrow"> ──${e(f.reg)}──▶ </span>I${f.to}[${f.toStage}]</div>`; });
+  } else fs.style.display='none';
+
+  const ss=document.getElementById('struct-section'),sl=document.getElementById('struct-hazard-list');
+  if(structHazards.length>0&&structural){
+    ss.style.display='block'; sl.innerHTML='';
+    structHazards.forEach(h=>{ sl.innerHTML+=`<li><span class="hz-icon" style="color:var(--purple)">🔒</span><div>
+      <span class="hz-main" style="color:var(--purple)">${e(h.type)}</span>
+      <span class="hz-detail">I${h.inst1} conflicts with I${h.inst2} at C${h.cycle} · ${h.stalls} stall(s) inserted</span></div></li>`; });
+  } else ss.style.display='none';
+
+  const chs=document.getElementById('cache-hz-section'),chl=document.getElementById('cache-hazard-list');
+  if(cacheHazards.length>0&&cacheEnabled){
+    chs.style.display='block'; chl.innerHTML='';
+    cacheHazards.forEach(h=>{ chl.innerHTML+=`<li><span class="hz-icon" style="color:var(--orange)">💾</span><div>
+      <span class="hz-main" style="color:var(--orange)">${e(h.type)}</span>
+      <span class="hz-detail">I${h.inst}: addr 0x${(h.address*4).toString(16).padStart(4,'0')} · +${h.penalty} stall cycle(s)</span></div></li>`; });
+  } else chs.style.display='none';
+
+  const hp=document.getElementById('hazard-panel');
+  const cols=[1,1,fwdPaths.length>0&&forwarding?1:0,structHazards.length>0&&structural?1:0,cacheHazards.length>0&&cacheEnabled?1:0].reduce((a,b)=>a+b,0);
+  hp.style.gridTemplateColumns=`repeat(${Math.max(2,Math.min(3,cols))},1fr)`;
+}
+
+// ═══════════════════════════════════════════
+//  CACHE PANEL
+// ═══════════════════════════════════════════
+function renderCachePanel(result){
+  if(!cacheModel) return;
+  const {hits,misses,sets,numSets,assoc,accessLog}=cacheModel;
+  const tot=hits+misses;
+  document.getElementById('cs-accesses').textContent=tot;
+  document.getElementById('cs-hits').textContent=hits;
+  document.getElementById('cs-misses').textContent=misses;
+  document.getElementById('cs-rate').textContent=cacheModel.hitRate;
+  document.getElementById('cs-stalls').textContent=result.cacheHazards.reduce((a,h)=>a+h.penalty,0);
+  const con=document.getElementById('cache-lines'); con.innerHTML='';
+  for(let s=0;s<numSets;s++){
+    for(let w=0;w<assoc;w++){
+      const entry=sets[s][w];
+      const la=accessLog.filter(a=>a.set===s&&a.tag===entry.tag).pop();
+      const d=document.createElement('div');
+      d.className=`cache-line${la?.hit?' hit':la&&!la.hit?' miss':''}`;
+      d.innerHTML=`<div class="cl-set">Set${s}${assoc>1?` W${w}`:''}</div>
+        <div class="cl-tag">${entry.valid?'Tag:0x'+entry.tag.toString(16).padStart(3,'0'):'<empty>'}</div>
+        <div class="cl-state">${entry.valid?(la?.hit?'✅ Hit':la?'❌ Miss':'Valid'):'—'}</div>`;
+      con.appendChild(d);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+//  REGISTER FILE
+// ═══════════════════════════════════════════
+function buildRegGrid(regs){
+  const g=document.getElementById('reg-grid'); g.innerHTML='';
+  for(let i=0;i<=15;i++){
+    const nm=`R${i}`,val=regs[nm]??0;
+    const d=document.createElement('div');
+    d.className='reg-cell'; d.id=`rc-${nm}`;
+    d.innerHTML=`<div class="reg-name">${nm}</div><div class="reg-val" id="rv-${nm}">0x${(val>>>0).toString(16).padStart(4,'0')}</div>`;
+    g.appendChild(d);
+  }
+}
+
+function updateRegAtCycle(cycle){
+  if(!simResult) return;
+  const {insts,startCycle}=simResult;
+  const STAGES=['IF','ID','EX','MEM','WB'];
+  const regs=makeInitialRegs();
+  const justWritten={};
+  const logLines=[];
+
+  for(let i=0;i<insts.length;i++){
+    const s=startCycle[i], inst=insts[i];
+    const wbC=s+4;
+    if(wbC<=cycle&&inst.dest){ regs[inst.dest]=computeResult(inst,regs); justWritten[inst.dest]=wbC; }
+    const si=cycle-s;
+    const inStall=cycle>=s-simResult.stallsBefore[i]&&cycle<s;
+    if(inStall){ logLines.push({cls:'log-stall',t:`C${cycle}: I${i} [${e(inst.mnem)}] ⛔ STALL bubble`}); }
+    else if(si>=0&&si<STAGES.length){
+      const stage=STAGES[si];
+      if(stage==='WB'&&inst.dest) logLines.push({cls:'log-wb',t:`C${cycle}: I${i} [${e(inst.mnem)}] ✅ WB → ${inst.dest} = 0x${(regs[inst.dest]>>>0).toString(16)}`});
+      else if(stage==='MEM'&&(inst.isLoad||inst.isStore)){
+        const m=simResult.cacheHazards.find(ch=>ch.inst===i);
+        if(m) logLines.push({cls:'log-cache',t:`C${cycle}: I${i} [${e(inst.mnem)}] 💾 $MISS (+${m.penalty}c)`});
+        else  logLines.push({cls:'log-fwd',  t:`C${cycle}: I${i} [${e(inst.mnem)}] MEM access`});
+      } else if(stage==='EX'){
+        const f=simResult.fwdPaths.find(fp=>fp.to===i);
+        if(f) logLines.push({cls:'log-fwd',t:`C${cycle}: I${i} [${e(inst.mnem)}] ↪ EX (fwd ${f.reg} from I${f.from})`});
+        else  logLines.push({cls:'log-line',t:`C${cycle}: I${i} [${e(inst.mnem)}] ${stage}`});
+      } else logLines.push({cls:'log-line',t:`C${cycle}: I${i} [${e(inst.mnem)}] ${stage}`});
+    }
+  }
+
+  for(let i=0;i<=15;i++){
+    const nm=`R${i}`,val=regs[nm]??0;
+    const cell=document.getElementById(`rc-${nm}`);
+    const valEl=document.getElementById(`rv-${nm}`);
+    if(!cell||!valEl) continue;
+    valEl.textContent=`0x${(val>>>0).toString(16).padStart(4,'0')}`;
+    cell.className='reg-cell'+(justWritten[nm]===cycle?' just-written':justWritten[nm]!==undefined?' dirty':'');
+  }
+  document.getElementById('reg-cycle-lbl').textContent=`${cycle} / ${simResult.totalCycles}`;
+  const logEl=document.getElementById('cycle-log');
+  logEl.innerHTML=logLines.length===0?'<span style="color:var(--muted)">No active stages this cycle.</span>':logLines.map(l=>`<div class="${l.cls}">${l.t}</div>`).join('');
+  logEl.scrollTop=0;
+}
+
+function computeResult(inst,regs){
+  const a=regs[inst.src1]??0,b=regs[inst.src2]??0;
+  switch(inst.mnem){
+    case 'ADD':return(a+b)|0; case 'SUB':return(a-b)|0;
+    case 'AND':return a&b;    case 'OR': return a|b;
+    case 'XOR':return a^b;    case 'NOR':return~(a|b);
+    case 'SLT':return a<b?1:0;
+    case 'MUL':return Math.imul(a,b); case 'DIV':return b?Math.floor(a/b):0;
+    case 'LW': return(regs[inst.src2]??0)+inst.addrOffset;
+    default:   return(a+b)|0;
+  }
+}
+
+// ═══════════════════════════════════════════
+//  STEP / PLAY
+// ═══════════════════════════════════════════
+function stepNext(){if(!simResult) return; if(currentCycle<simResult.totalCycles){currentCycle++;updateCycleDisplay();}}
+function stepPrev(){if(!simResult) return; if(currentCycle>1){currentCycle--;updateCycleDisplay();}}
+function resetView(){stopPlay();currentCycle=1;updateCycleDisplay();}
+function stopPlay(){
+  if(playTimer){clearInterval(playTimer);playTimer=null;}
+  playing=false;
+  document.getElementById('btn-play').textContent='⏵ Play';
+}
+function togglePlay(){
+  if(playing){stopPlay();return;}
+  if(!simResult) return;
+  playing=true;
+  document.getElementById('btn-play').textContent='⏸ Pause';
+  const spd=parseInt(document.getElementById('speed-select').value)||400;
+  if(currentCycle>=simResult.totalCycles) currentCycle=1;
+  playTimer=setInterval(()=>{
+    if(currentCycle>=simResult.totalCycles){stopPlay();return;}
+    currentCycle++; updateCycleDisplay();
+  },spd);
+}
+function updateCycleDisplay(){
+  if(!simResult) return;
+  document.getElementById('cycle-display').textContent=`CYCLE ${currentCycle} / ${simResult.totalCycles}`;
+  document.getElementById('progress-fill').style.width=((currentCycle/simResult.totalCycles)*100)+'%';
+  document.getElementById('btn-prev').disabled=currentCycle<=1;
+  document.getElementById('btn-next').disabled=currentCycle>=simResult.totalCycles;
+  renderTable(simResult,currentCycle);
+  updateRegAtCycle(currentCycle);
+}
+
+// ═══════════════════════════════════════════
+//  TABS
+// ═══════════════════════════════════════════
+function switchTab(id,btn){
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ═══════════════════════════════════════════
+//  EXPORT
+// ═══════════════════════════════════════════
+function exportPNG(){
+  if(!simResult) return;
+  const target=document.getElementById('pipeline-export-target');
+  const load=()=>{ doExportPNG(target); };
+  if(typeof html2canvas==='undefined'){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload=load;
+    s.onerror=()=>alert('Could not load html2canvas. Try right-clicking the diagram → "Save image".');
+    document.head.appendChild(s);
+  } else load();
+}
+function doExportPNG(target){
+  html2canvas(target,{backgroundColor:'#ffffff',scale:2,useCORS:true,logging:false}).then(canvas=>{
+    const a=document.createElement('a');
+    a.download=`pipeline_C${currentCycle}.png`;
+    a.href=canvas.toDataURL('image/png');
+    a.click();
+  }).catch(()=>alert('Export failed. Try right-clicking the table → Save image.'));
+}
+
+function exportCSV(){
+  if(!simResult) return;
+  const {insts,startCycle,stallsBefore,totalCycles,ctrlHazards,fwdPaths,forwarding,cacheHazards}=simResult;
+  const STAGES=['IF','ID','EX','MEM','WB'];
+  const N=insts.length;
+  let csv='Instruction,'+Array.from({length:totalCycles},(_,i)=>`C${i+1}`).join(',')+'\n';
+  for(let i=0;i<N;i++){
+    const s=startCycle[i],st=stallsBefore[i];
+    const cells=[];
+    for(let c=1;c<=totalCycles;c++){
+      const si=c-s;
+      if(c>=s-st&&c<s) cells.push('STALL');
+      else if(si>=0&&si<5){
+        const stage=STAGES[si];
+        const isFwd=forwarding&&fwdPaths.some(f=>f.to===i&&stage==='EX');
+        const isMiss=cacheHazards.some(ch=>ch.inst===i&&stage==='MEM');
+        cells.push(isMiss?'CACHE$MISS':isFwd?'FWD':stage);
+      } else cells.push('');
+    }
+    csv+=`"I${i}: ${insts[i].text.trim()}",`+cells.join(',')+'\n';
+  }
+  csv+='\nMetrics\n';
+  csv+=`Total Cycles,${totalCycles}\nInstructions,${N}\n`;
+  csv+=`CPI,${(totalCycles/N).toFixed(3)}\nEfficiency,${((N/totalCycles)*100).toFixed(1)}%\n`;
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='pipeline_simulation.csv';a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+loadPreset('combined');
+buildRegGrid(makeInitialRegs());
+</script>
+</body>
+</html>
